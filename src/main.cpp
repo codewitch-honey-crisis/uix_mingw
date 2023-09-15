@@ -107,11 +107,7 @@ static bgrx_pixel<32> fire_cols[] = {
         bgrx_pixel<32>(224,252,252,255), bgrx_pixel<32>(228,252,252,255), bgrx_pixel<32>(232,252,252,255), bgrx_pixel<32>(236,252,252,255),
         bgrx_pixel<32>(240,252,252,255), bgrx_pixel<32>(244,252,252,255), bgrx_pixel<32>(248,252,252,255), bgrx_pixel<32>(252,252,252,255)
 };
-std::chrono::time_point<std::chrono::system_clock> start_time;
-// Exit Flag
-//HANDLE g_hQuit = NULL;
-// Ready to quit flag
-//HANDLE g_hReady = NULL;
+
 /////////////////////////////////////////////////////
 ID2D1HwndRenderTarget* m_pRenderTarget = nullptr;
 ID2D1Factory* m_pFactory = nullptr;

@@ -190,9 +190,7 @@ class fire_box : public control<ControlSurfaceType> {
             for (int x = clip.x1; x <= clip.x2; ++x) {
                 int i = y >> 2;
                 int j = x >> 2;
-                bgrx_pixel<32>& col = fire_cols[p1[i][j]];
-                point16 pt(x, y);
-                destination.point(pt, col);
+                destination.point(point16(x, y), fire_cols[p1[i][j]]);
             }
         }
     }

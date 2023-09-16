@@ -1,34 +1,14 @@
-#define UNICODE
-/////////////////////////////////////////////////////
-#include <windows.h>
-#include <conio.h>
-#include <assert.h>
-#include <d2d1.h>
-#include <stdint.h>
-#include <math.h>
-#include <chrono>
-/////////////////////////////////////////////////////
-#pragma comment (lib, "d2d1.lib")
-/////////////////////////////////////////////////////
-#include <uix.hpp>
 #include <gfx_cpp14.hpp>
-
 using namespace gfx;
+#define SCREEN_SIZE {320,240}
+#include "win_bridge.hpp"
+#include <uix.hpp>
 using namespace uix;
-volatile DWORD frames = 0;
-volatile DWORD seconds = 0;
-HANDLE hQuitEvent = NULL;
-HANDLE hThread = NULL;
-HANDLE hMutex = NULL;
-bool bQuit = false;
-point16 mouse_loc;
-int mouse_state = 0; // 0 = released, 1 = pressed
-int old_mouse_state = 0;
-int mouse_req = 0;
-// creates an BGRx pixel by making each channel 
+
+// creates a BGRx pixel by making each channel 
 // one quarter of the whole. Any remainder bits
 // are added to the green channel. One channel
-// is unused
+// is unused. Consumed by DirectX
 template<size_t BitDepth>
 using bgrx_pixel = gfx::pixel<
 	gfx::channel_traits<gfx::channel_name::B,(BitDepth/4)>,
@@ -108,29 +88,17 @@ static bgrx_pixel<32> fire_cols[] = {
         bgrx_pixel<32>(240,252,252,255), bgrx_pixel<32>(244,252,252,255), bgrx_pixel<32>(248,252,252,255), bgrx_pixel<32>(252,252,252,255)
 };
 
-/////////////////////////////////////////////////////
-ID2D1HwndRenderTarget* m_pRenderTarget = nullptr;
-ID2D1Factory* m_pFactory = nullptr;
-ID2D1Bitmap* m_pBitmap = nullptr;
-uint8_t * m_frame_buffer = nullptr;
-constexpr static const SIZE Resolution = {320,240};
+uint8_t * transfer_buffer = nullptr;
+constexpr static const size_t transfer_buffer_size = frame_buffer_t::sizeof_buffer(screen_size.width , screen_size.height );
 screen_t main_screen;
-
-static label_t fps(main_screen);
-static label_t summaries[] = {
-    label_t(main_screen),
-    label_t(main_screen),
-    label_t(main_screen),
-    label_t(main_screen),
-    label_t(main_screen),
-    label_t(main_screen)};
+static int seconds=0;
 template <typename ControlSurfaceType>
 class fire_box : public control<ControlSurfaceType> {
     int draw_state = 0;
-	constexpr static const int V_WIDTH =Resolution.cx / 4;
-	constexpr static const int V_HEIGHT =Resolution.cy / 4;
-	constexpr static const int BUF_WIDTH =Resolution.cx / 4;
-	constexpr static const int BUF_HEIGHT =Resolution.cy / 4+6;
+	constexpr static const int V_WIDTH =screen_size.width / 4;
+	constexpr static const int V_HEIGHT =screen_size.height / 4;
+	constexpr static const int BUF_WIDTH =screen_size.width / 4;
+	constexpr static const int BUF_HEIGHT =screen_size.height / 4+6;
 
     uint8_t p1[BUF_HEIGHT][BUF_WIDTH];  // VGA buffer, quarter resolution w/extra lines
     unsigned int i, j, k, l, delta;     // looping variables, counters, and data
@@ -229,11 +197,11 @@ class fire_box : public control<ControlSurfaceType> {
         }
     }
     virtual bool on_touch(size_t locations_size, const spoint16* locations) override {
-        fps.visible(true);
+        //fps.visible(true);
         return true;
     }
     virtual void on_release() override {
-        fps.visible(false);
+        //fps.visible(false);
     }
 };
 using fire_box_t = fire_box<typename screen_t::control_surface_type>;
@@ -360,11 +328,11 @@ class alpha_box : public control<ControlSurfaceType> {
         }
     }
     virtual bool on_touch(size_t locations_size, const spoint16* locations) override {
-        fps.visible(true);
+        //fps.visible(true);
         return true;
     }
     virtual void on_release() override {
-        fps.visible(false);
+        //fps.visible(false);
     }
 };
 using alpha_box_t = alpha_box<screen_t::control_surface_type>;
@@ -483,11 +451,11 @@ class plaid_box : public control<ControlSurfaceType> {
         }
     }
     virtual bool on_touch(size_t locations_size, const spoint16* locations) override {
-        fps.visible(true);
+        //fps.visible(true);
         return true;
     }
     virtual void on_release() override {
-        fps.visible(false);
+        //fps.visible(false);
     }
 };
 using plaid_box_t = plaid_box<screen_t::control_surface_type>;
@@ -498,310 +466,59 @@ static alpha_box_t alpha(main_screen);
 static plaid_box_t plaid(main_screen);
 
 
-/////////////////////////////////////////////////////
-LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-	if (uMsg == WM_SIZE) {
-		if (m_pRenderTarget) {
-			D2D1_SIZE_U size = D2D1::SizeU(LOWORD(lParam), HIWORD(lParam));
-			m_pRenderTarget->Resize(size);
-		}
-	}
-	if (uMsg == WM_CLOSE) {
-		SetEvent(hQuitEvent);
-        bQuit = true;
-	}
-    if(uMsg == WM_LBUTTONDOWN) {
-        if(WAIT_OBJECT_0 == WaitForSingleObject( 
-            hMutex,    // handle to mutex
-            INFINITE)) {  // no time-out interval) 
-        
-            old_mouse_state = mouse_state;
-            mouse_state = 1;
-            mouse_loc.x = (uint16_t)LOWORD(lParam);
-            mouse_loc.y = (uint16_t)HIWORD(lParam);
-            mouse_req = 1;
-            ReleaseMutex(hMutex);
-        }
-    } 
-    if(uMsg == WM_MOUSEMOVE) {
-        if(WAIT_OBJECT_0 == WaitForSingleObject( 
-            hMutex,    // handle to mutex
-            INFINITE)) {  // no time-out interval) 
-        
-            if(mouse_state==1 && MK_LBUTTON==wParam) {
-                mouse_req = 1;
-                mouse_loc.x = (uint16_t)LOWORD(lParam); 
-                mouse_loc.y = (uint16_t)HIWORD(lParam);    
-                
-            }
-            ReleaseMutex(hMutex);
-        }
-    }
-    if(uMsg == WM_LBUTTONUP) {
-        if(WAIT_OBJECT_0 == WaitForSingleObject( 
-            hMutex,    // handle to mutex
-            INFINITE)) {  // no time-out interval) 
-        
-            
-            old_mouse_state = mouse_state;
-            mouse_req = 1;
-            mouse_state = 0;
-            mouse_loc.x = (uint16_t)LOWORD(lParam);
-            mouse_loc.y = (uint16_t)HIWORD(lParam);
-            ReleaseMutex(hMutex);
-        }
-    } 
-  
-    return DefWindowProc(hWnd,uMsg,wParam,lParam);
-}
+
 void uix_on_touch(point16* out_locations,
                   size_t* in_out_locations_size,
                   void* state) {
     if(!*in_out_locations_size) {
         return;
     }
-    if(WAIT_OBJECT_0 == WaitForSingleObject( 
-            hMutex,    // handle to mutex
-            INFINITE)) {  // no time-out interval) 
-        
-            
-        *in_out_locations_size = 0;
-        if(mouse_req) {
-            if(mouse_state) {
-                *in_out_locations_size = 1;
-                *out_locations = mouse_loc;
-            }
-        }
-        mouse_req = 0;
-        ReleaseMutex(hMutex);
-    }
+    *in_out_locations_size = !!read_mouse(out_locations);
 }
 void uix_on_flush(const rect16& bounds, const void* bmp, void* state) {
-	D2D1_RECT_U b;
-	b.top = bounds.y1;
-	b.left = bounds.x1;
-	b.bottom = bounds.y2;
-	b.right = bounds.x2;
-    m_pBitmap->CopyFromMemory(&b,bmp,(bounds.width()*screen_t::pixel_type::bit_depth+7)/8);
+	flush_bitmap(bounds,bmp);
     main_screen.flush_complete();
 }
-DWORD thread_proc(void* state) {
-    bool quit = false;
-    while(!quit)  {
-        DWORD secs = seconds;
-        switch(secs) {
-            case 0:
-                break;
-            case 5:
-                alpha.visible(false);
-                fire.visible(true);
-                plaid.visible(false);
-                break;
-            case 10:
-                alpha.visible(false);
-                fire.visible(false);
-                plaid.visible(true);
-                break;
-            case 15:
-                alpha.visible(true);
-                fire.visible(false);
-                plaid.visible(false);
-                InterlockedExchange(&seconds,0);
-                break;
-        }
-        main_screen.invalidate();
-        main_screen.update();
-        if (m_pRenderTarget && m_pBitmap) {
-                m_pRenderTarget->BeginDraw();
-                D2D1_RECT_F rect_dest = {
-                    0,
-                    0,
-                    (float)Resolution.cx,
-                    (float)Resolution.cy
-                };
-                m_pRenderTarget->DrawBitmap(m_pBitmap,
-                    rect_dest,1.0f,D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,NULL);
-                m_pRenderTarget->EndDraw();
-                InterlockedIncrement(&frames);
-            }
-         if (WAIT_OBJECT_0 == WaitForSingleObject(hQuitEvent, 0)) {
-			quit = true;
-		}
-    }
-    return 0;
+void setup() {
+    transfer_buffer = (uint8_t *)malloc(transfer_buffer_size);
+    main_screen.dimensions((ssize16)screen_size);
+    main_screen.buffer_size(transfer_buffer_size);
+    main_screen.buffer1(transfer_buffer);
+    main_screen.on_flush_callback(uix_on_flush);
+    main_screen.on_touch_callback(uix_on_touch);
+    main_screen.background_color(color_t::black);
+    alpha.bounds(main_screen.bounds());
+    main_screen.register_control(alpha);
+    fire.bounds(main_screen.bounds());
+    fire.visible(false);
+    main_screen.register_control(fire);
+    plaid.bounds(main_screen.bounds());
+    plaid.visible(false);
+    main_screen.register_control(plaid);
 }
-/////////////////////////////////////////////////////
-int main(int argc, char* argv[]) {
-
-	main_screen.dimensions(ssize16(Resolution.cx,Resolution.cy));
-	//g_hQuit  = CreateEvent(NULL, TRUE, FALSE, NULL);
-	//g_hReady = CreateEvent(NULL, TRUE, FALSE, NULL);
-	CoInitializeEx(0, COINIT_MULTITHREADED);
-    //HANDLE hConsole = GetStdHandle(STD_INPUT_HANDLE);
-	//HANDLE hHandles[] = {hConsole,g_hQuit};
-
-	WNDCLASSW wc;
-	HINSTANCE hInstance = GetModuleHandle(NULL);
-	wc.style = CS_HREDRAW | CS_VREDRAW;
-	wc.lpfnWndProc = WindowProc;
-	wc.cbClsExtra = 0;
-	wc.cbWndExtra = 0;
-	wc.hInstance = hInstance;
-	wc.hbrBackground = NULL;
-	wc.lpszMenuName = NULL;
-	wc.hIcon = NULL;
-	wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wc.lpszClassName = L"UIXDemo";
-
-	RegisterClassW(&wc);
-
-	HRESULT hr = S_OK;
-    RECT r = {0,0,Resolution.cx-1,Resolution.cy-1};
-
-    AdjustWindowRectEx(&r,WS_CAPTION|WS_SYSMENU,FALSE,WS_EX_APPWINDOW);
-	HWND hwnd = CreateWindowExW(
-		/*WS_EX_OVERLAPPEDWINDOW |*/ WS_EX_APPWINDOW
-		, L"UIXDemo", L"Rendering",
-		WS_CAPTION | WS_SYSMENU,
-		0, 0,
-		r.right+r.left+1,
-		r.bottom-r.top+1,
-		NULL, NULL, hInstance, NULL);
-	assert(IsWindow(hwnd));
-	if (!IsWindow(hwnd)) goto exit;
-    hQuitEvent = CreateEvent( 
-    NULL,               // default security attributes
-    TRUE,               // manual-reset event
-    FALSE,              // initial state is nonsignaled
-    TEXT("QuitEvent")  // object name
-    ); 
-    if(hQuitEvent==NULL) {
-        goto exit;
+void loop() {
+    static int ts = 0;
+    if(ts==0) { ts = millis(); }
+    if(millis()>ts+1000) {
+        ts = millis();
+        ++seconds;
     }
-    hMutex = CreateMutex(NULL,FALSE,NULL);
-    if(hMutex==NULL) {
-        goto exit;
-    }
-    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &m_pFactory);
-	assert(hr == S_OK);
-	if (hr != S_OK) goto exit;
-	{
-		m_frame_buffer = (uint8_t *)malloc(
-                                    Resolution.cx * Resolution.cy * 4);
-		main_screen.buffer_size(frame_buffer_t::sizeof_buffer(size16(Resolution.cx,Resolution.cy)));
-		main_screen.buffer1(m_frame_buffer);
-		main_screen.on_flush_callback(uix_on_flush);
-		main_screen.background_color(color_t::black);
-        alpha.bounds(main_screen.bounds());
-        main_screen.register_control(alpha);
-        fire.bounds(main_screen.bounds());
-        fire.visible(false);
-        main_screen.register_control(fire);
-        plaid.bounds(main_screen.bounds());
+    int secs = seconds % 16;
+    if(secs==5) {
+        alpha.visible(false);
+        fire.visible(true);
         plaid.visible(false);
-        main_screen.register_control(plaid);
-	}
-	{
-		RECT rc;
-		GetClientRect(hwnd, &rc);
-		D2D1_SIZE_U size = D2D1::SizeU(
-                                       rc.right - rc.left, 
-                                       rc.bottom - rc.top
-                                      );
-
-		hr = m_pFactory->CreateHwndRenderTarget(
-            D2D1::RenderTargetProperties(),
-			D2D1::HwndRenderTargetProperties(hwnd, size),
-			&m_pRenderTarget
-		);
-		assert(hr == S_OK);
-		if (hr != S_OK) goto exit;
-	}
-	{
-		D2D1_SIZE_U size = {0};
-		D2D1_BITMAP_PROPERTIES props;
-		m_pRenderTarget->GetDpi(&props.dpiX,&props.dpiY);
-		D2D1_PIXEL_FORMAT pixelFormat = D2D1::PixelFormat(
-			DXGI_FORMAT_B8G8R8A8_UNORM,
-			D2D1_ALPHA_MODE_IGNORE
-		);
-		props.pixelFormat = pixelFormat;
-		size.width = Resolution.cx;
-		size.height = Resolution.cy;
-		
-		hr = m_pRenderTarget->CreateBitmap(size, 
-                                           props, 
-                                           &m_pBitmap);
-		assert(hr == S_OK);
-		if (hr != S_OK) goto exit;
-	}
-	
-    ShowWindow(hwnd,SW_SHOWNORMAL);
-	UpdateWindow(hwnd);
-	SetTimer(hwnd,0,1000,NULL);
-    hThread = CreateThread(NULL,4000*4,thread_proc,NULL,0,NULL);
-    if(hThread==NULL) {
-        goto exit;
     }
-	
-	while (!bQuit) {      
-
-		DWORD result = 0;
-       
-        MSG msg = { 0 };
-        if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-        
-            if (msg.message == WM_QUIT) {
-                bQuit = true;
-                break;
-            }
-            if (msg.message == WM_TIMER) {
-                DWORD f = InterlockedExchange(&frames,0);
-                wchar_t wsztitle[64];
-                wcscpy(wsztitle,L"Rendering @ ");
-                _itow((int)f,wsztitle+wcslen(wsztitle),10);
-                wcscat(wsztitle,L" FPS");
-                SetWindowTextW(hwnd,wsztitle);
-                InterlockedIncrement(&seconds);
-            }
-            if (msg.message == WM_KEYDOWN) {
-                if (msg.wParam == VK_ESCAPE) {
-                    bQuit = true;
-                    break;
-                }
-            }
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-        if (WAIT_OBJECT_0 == WaitForSingleObject(hQuitEvent, 0)) {
-			bQuit = true;
-		}
-	}
-exit:
-	if (IsWindow(hwnd)) {
-		DestroyWindow(hwnd);
-	}
-    if(hThread!=NULL) {
-        CloseHandle(hThread);
+    if(secs==10) {
+        alpha.visible(false);
+        fire.visible(false);
+        plaid.visible(true);
     }
-	if(hQuitEvent!=NULL) {
-        CloseHandle(hQuitEvent);
+    if(secs>=15) {
+        alpha.visible(true);
+        fire.visible(false);
+        plaid.visible(false);
     }
-    if(hMutex!=NULL) {
-        CloseHandle(hMutex);
-    }
-    //SetEvent(g_hReady);
-	//SetConsoleCtrlHandler(ConsoleHandlerRoutine, FALSE);
-
-	m_pRenderTarget->Release();
-	m_pBitmap->Release();
-	m_pFactory->Release();
-	CoUninitialize();
-	if (m_frame_buffer) {
-		free(m_frame_buffer);
-	}
-	//CloseHandle(g_hQuit);
-	//CloseHandle(g_hReady);
+    main_screen.invalidate();
+    main_screen.update();
 }
-/////////////////////////////////////////////////////

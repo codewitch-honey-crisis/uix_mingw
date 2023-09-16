@@ -6,6 +6,7 @@ set(FIND_LIBRARY_USE_LIB64_PATHS True)
 set( LIBS d2d1 )
 # cmake sucks so do it this way
 add_executable(uix_minigw src/main.cpp 
+                src/win_bridge.cpp
                 lib/htcw_io/src/io_stream.cpp
                 lib/htcw_gfx/src/gfx_drawing.cpp
                 lib/htcw_gfx/src/gfx_encoding.cpp

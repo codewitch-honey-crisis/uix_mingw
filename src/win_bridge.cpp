@@ -12,7 +12,6 @@ using namespace gfx;
 /////////////////////////////////////////////////////
 #pragma comment(lib, "d2d1.lib")
 /////////////////////////////////////////////////////
-LARGE_INTEGER counter_freq;
 static LARGE_INTEGER start_time;
 static volatile DWORD frames = 0;
 static volatile DWORD seconds = 0;
@@ -163,15 +162,16 @@ void flush_bitmap(const rect16& bounds, const void* bmp) {
     }
 }
 uint32_t millis() {
+    LARGE_INTEGER counter_freq;
     LARGE_INTEGER end_time;
+    QueryPerformanceFrequency(&counter_freq);
     QueryPerformanceCounter(&end_time);
-    return (uint32_t)((double)(end_time.QuadPart - start_time.QuadPart) / counter_freq.QuadPart) * 1000;
+    return uint32_t(((double)(end_time.QuadPart - start_time.QuadPart) / counter_freq.QuadPart) * 1000);
 }
 /////////////////////////////////////////////////////
 int main(int argc, char* argv[]) {
     // CoInitializeEx(0, COINIT_MULTITHREADED);
     CoInitialize(0);
-    QueryPerformanceFrequency(&counter_freq);
     QueryPerformanceCounter(&start_time);
 
     WNDCLASSW wc;

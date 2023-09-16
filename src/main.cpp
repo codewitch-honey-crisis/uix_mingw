@@ -503,21 +503,21 @@ void loop() {
         ts = millis();
         ++seconds;
     }
-    int secs = seconds % 16;
-    if(secs==5) {
+    if(seconds==5) {
         alpha.visible(false);
         fire.visible(true);
         plaid.visible(false);
     }
-    if(secs==10) {
+    if(seconds==10) {
         alpha.visible(false);
         fire.visible(false);
         plaid.visible(true);
     }
-    if(secs>=15) {
+    if(seconds>=15) {
         alpha.visible(true);
         fire.visible(false);
         plaid.visible(false);
+        seconds = 0;
     }
     main_screen.invalidate();
     main_screen.update();

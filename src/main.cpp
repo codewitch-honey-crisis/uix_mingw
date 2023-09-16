@@ -463,8 +463,6 @@ static fire_box_t fire(main_screen);
 static alpha_box_t alpha(main_screen);
 static plaid_box_t plaid(main_screen);
 
-
-
 void uix_on_touch(point16* out_locations,
                   size_t* in_out_locations_size,
                   void* state) {

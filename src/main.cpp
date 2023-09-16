@@ -1,6 +1,6 @@
 #define SCREEN_SIZE {320,240}
 #include "win_bridge.hpp"
-#include <gfx_cpp14.hpp>
+#include <gfx.hpp>
 #include <uix.hpp>
 using namespace gfx;
 using namespace uix;

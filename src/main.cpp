@@ -1,8 +1,8 @@
-#include <gfx_cpp14.hpp>
-using namespace gfx;
 #define SCREEN_SIZE {320,240}
 #include "win_bridge.hpp"
+#include <gfx_cpp14.hpp>
 #include <uix.hpp>
+using namespace gfx;
 using namespace uix;
 
 // creates a BGRx pixel by making each channel 
